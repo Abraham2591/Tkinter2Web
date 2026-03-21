@@ -112,13 +112,25 @@ def increment():
     global counter
     counter = counter + 1
     label.config(text="Count: " + str(counter))
+    if counter < 10:
+        root.after(500, increment)
+
+def on_reset():
+    global counter
+    counter = 0
+    label.config(text="Count: 0")
 
 root = tk.Tk()
-label = tk.Label(root, text="Count: 0")
+root.title("Counter App")
+
+label = tk.Label(root, text="Count: 0", bg="#eee")
 label.pack()
 
-btn = tk.Button(root, text="+1", command=increment)
-btn.pack()
+btn1 = tk.Button(root, text="Start", command=increment, bg="#4CAF50", fg="white")
+btn1.pack(side=tk.LEFT, padx=5)
+
+btn2 = tk.Button(root, text="Reset", command=on_reset, bg="#f44336", fg="white")
+btn2.pack(side=tk.LEFT, padx=5)
 
 root.mainloop()
 ```
@@ -126,31 +138,44 @@ root.mainloop()
 ### JavaScript Output:
 ```html
 <!DOCTYPE html>
-<html>
-<head>
+<html><head><meta charset="UTF-8"><title>Counter App</title>
 <style>
 body{font-family:Arial;background:#f0f0f0;padding:20px}
-#app{display:flex;flex-direction:column;align-items:center}
-button{padding:10px 20px}
+#app{display:flex;flex-direction:column;align-items:center;gap:10px}
+.frame-container{display:flex;flex-direction:row;align-items:center;gap:5px;margin:5px 0;padding:10px}
+button{padding:10px 20px;cursor:pointer;border:1px solid #ccc;border-radius:4px;margin:0 5px}
 span{display:inline-block;margin:5px 10px}
-</style>
-</head>
-<body>
+input{padding:8px;width:150px;border:1px solid #ccc;border-radius:4px;margin:5px 0}
+label{cursor:pointer;margin:5px 10px;display:inline-flex;align-items:center;gap:5px}
+#w1{background:#4CAF50}
+#w2{background:#f44336}
+</style></head><body>
 <div id="app">
 <span id="w0">Count: 0</span>
-<button id="w1">+1</button>
+<button id="w1">Start</button>
+<button id="w2">Reset</button>
 </div>
 <script>
 var counter = 0;
 function increment() {
     counter = counter + 1;
-    document.getElementById("w0").textContent = "Count: " + String(counter);
+    document.getElementById("w0").textContent = "Count: " +String(counter);
+    if (counter < 10) {
+        setTimeout(increment, 500);
+    }
 }
+function on_reset() {
+    counter = 0;
+    document.getElementById("w0").textContent = "Count: 0";
+}
+
 var el1 = document.getElementById("w1");
 if (el1) { el1.onclick = function() { increment(); }; }
-</script>
-</body>
-</html>
+var el2 = document.getElementById("w2");
+if (el2) { el2.onclick = function() { on_reset(); }; }
+
+console.log("App loaded");
+</script></body></html>
 ```
 
 ## License
