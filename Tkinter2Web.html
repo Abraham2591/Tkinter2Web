@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Tkinter → HTML/JS converter</title>
+<style>
+:root{--bg:#f6f5f1;--fg:#1d1d1b;--pane:#fff;--bd:#d6d3c8;--ac:#2a5db0;--mu:#6b6a63;--wn:#9a5b00;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#17181b;--fg:#e8e6df;--pane:#202226;--bd:#33363c;--ac:#7aa7f0;--mu:#97958c;--wn:#e8b35a}}
+:root[data-theme=dark]{--bg:#17181b;--fg:#e8e6df;--pane:#202226;--bd:#33363c;--ac:#7aa7f0;--mu:#97958c;--wn:#e8b35a}
+html,body{height:100%}*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,"Segoe UI",sans-serif;display:flex;flex-direction:column;padding:12px;gap:10px}
+header{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px}h1{font-size:18px;margin:0}header span{color:var(--mu);font-size:12.5px}
+main{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:800px){main{grid-template-columns:1fr;grid-auto-rows:minmax(340px,1fr)}body{height:auto}}
+.col{display:flex;flex-direction:column;min-height:0;background:var(--pane);border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+.bar{display:flex;gap:6px;align-items:center;padding:6px 8px;border-bottom:1px solid var(--bd);font-weight:600;font-size:13px}.bar .sp{flex:1}
+button{font:inherit;font-size:12.5px;color:var(--fg);background:transparent;border:1px solid var(--bd);border-radius:6px;padding:3px 10px;cursor:pointer}
+button.on{background:var(--ac);border-color:var(--ac);color:var(--bg)}
+textarea,pre{flex:1;min-height:0;margin:0;border:0;outline:0;padding:10px;background:var(--pane);color:var(--fg);font:12.5px/1.5 ui-monospace,Consolas,monospace;tab-size:4;resize:none;overflow:auto;white-space:pre}
+iframe{flex:1;border:0;background:#fff;min-height:0;width:100%}
+#warn{font-size:12px;color:var(--wn);padding:0 8px 6px;min-height:0}#warn:empty{display:none}
+</style></head><body>
+<header><h1>Tkinter → HTML / CSS / JS</h1><span>Paste Python 3 tkinter code. Output is one self-contained HTML file (runtime included).</span></header>
+<main>
+<section class="col"><div class="bar">Python (tkinter)<span class="sp"></span><button id="ld">Load sample</button></div><textarea id="src" spellcheck="false"></textarea></section>
+<section class="col"><div class="bar"><button id="tp" class="on">Preview</button><button id="tc">HTML output</button><span class="sp"></span><button id="cp">Copy HTML</button></div><div id="warn"></div><iframe id="prev" sandbox="allow-scripts allow-modals"></iframe><pre id="code" style="display:none"></pre></section>
+</main>
+
+<script type="text/plain" id="sample">
+"""Task board demo: menus, tabs, todos, animated canvas, auto-refreshing photo API."""
+import tkinter as tk
+from tkinter import ttk, messagebox
+from io import BytesIO
+from PIL import Image, ImageTk
+import requests
+import random
+import time
+
+TODO_SEED = ["Buy milk", "Write converter", "Ship it"]
+COLORS = ["#e76f51", "#2a9d8f", "#e9c46a", "#264653", "#f4a261"]
+
+
+class App(tk.Frame):
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.dark = tk.BooleanVar(value=False)
+        self.priority = tk.StringVar(value="Medium")
+        self.speed = tk.IntVar(value=3)
+        self.shape = tk.StringVar(value="oval")
+        self.status = tk.StringVar(value="Ready")
+        self.balls = []
+        self.auto = tk.BooleanVar(value=True)
+        self.interval = tk.IntVar(value=5)
+        self.job = None
+        self.page = 0
+        self.pack(fill=tk.BOTH, expand=True)
+        self.make_menu()
+        self.make_tabs()
+        self.make_statusbar()
+        for item in TODO_SEED:
+            self.add_todo(item)
+        self.tick()
+        self.animate()
+        self.fetch_photo()
+
+    # ---------- menu / layout ----------
+    def make_menu(self):
+        bar = tk.Menu(self.master)
+        file_menu = tk.Menu(bar, tearoff=0)
+        file_menu.add_command(label="Clear todos", command=self.clear_todos)
+        file_menu.add_separator()
+        file_menu.add_command(label="Quit", command=lambda: self.master.destroy())
+        bar.add_cascade(label="File", menu=file_menu)
+        help_menu = tk.Menu(bar, tearoff=0)
+        help_menu.add_command(label="About", command=self.about)
+        bar.add_cascade(label="Help", menu=help_menu)
+        self.master.config(menu=bar)
+
+    def make_tabs(self):
+        self.nb = ttk.Notebook(self)
+        self.nb.pack(fill=tk.BOTH, expand=True, padx=6, pady=6)
+        self.tab_todo = tk.Frame(self.nb)
+        self.tab_draw = tk.Frame(self.nb)
+        self.tab_data = tk.Frame(self.nb)
+        self.nb.add(self.tab_todo, text="Todos")
+        self.nb.add(self.tab_draw, text="Canvas")
+        self.nb.add(self.tab_data, text="Photos (API)")
+        self.build_todo()
+        self.build_draw()
+        self.build_data()
+
+    def make_statusbar(self):
+        bar = tk.Frame(self, relief=tk.SUNKEN, bd=1)
+        bar.pack(fill=tk.X, side=tk.BOTTOM)
+        tk.Label(bar, textvariable=self.status, anchor="w").pack(side=tk.LEFT, padx=6)
+        self.clock = tk.Label(bar, text="", font=("Courier", 10))
+        self.clock.pack(side=tk.RIGHT, padx=6)
+
+    # ---------- todos tab ----------
+    def build_todo(self):
+        top = tk.Frame(self.tab_todo)
+        top.pack(fill=tk.X, padx=6, pady=6)
+        self.entry = tk.Entry(top, width=24)
+        self.entry.pack(side=tk.LEFT, padx=(0, 6))
+        self.entry.bind("<Return>", self.on_enter)
+        combo = ttk.Combobox(top, textvariable=self.priority, values=["Low", "Medium", "High"], width=8)
+        combo.pack(side=tk.LEFT, padx=(0, 6))
+        tk.Button(top, text="Add", command=self.on_add).pack(side=tk.LEFT)
+
+        self.listbox = tk.Listbox(self.tab_todo, height=8, selectmode=tk.SINGLE)
+        self.listbox.pack(fill=tk.BOTH, expand=True, padx=6)
+        self.listbox.bind("<Double-Button-1>", self.on_done)
+
+        row = tk.Frame(self.tab_todo)
+        row.pack(fill=tk.X, padx=6, pady=6)
+        tk.Button(row, text="Remove selected", command=self.on_remove).pack(side=tk.LEFT)
+        tk.Checkbutton(row, text="Dark canvas", variable=self.dark, command=self.on_theme).pack(side=tk.LEFT, padx=10)
+        self.count_label = tk.Label(row, text="0 items", fg="#555")
+        self.count_label.pack(side=tk.RIGHT)
+
+    def on_enter(self, event):
+        self.on_add()
+
+    def on_add(self):
+        text = self.entry.get().strip()
+        if not text:
+            messagebox.showwarning("Empty", "Type something first")
+            return
+        self.add_todo(text + " [" + self.priority.get() + "]")
+        self.entry.delete(0, tk.END)
+
+    def add_todo(self, text):
+        self.listbox.insert(tk.END, text)
+        self.refresh_count()
+
+    def refresh_count(self):
+        n = self.listbox.size()
+        self.count_label.config(text=f"{n} items")
+        self.status.set(f"{n} todos")
+
+    def on_remove(self):
+        sel = self.listbox.curselection()
+        if len(sel) == 0:
+            return
+        self.listbox.delete(sel[0])
+        self.refresh_count()
+
+    def on_done(self, event):
+        sel = self.listbox.curselection()
+        if len(sel) == 0:
+            return
+        idx = sel[0]
+        text = self.listbox.get(idx)
+        if not text.startswith("✓ "):
+            self.listbox.delete(idx)
+            self.listbox.insert(idx, "✓ " + text)
+
+    def clear_todos(self):
+        self.listbox.delete(0, tk.END)
+        self.refresh_count()
+
+    def on_theme(self):
+        bg = "#1b1b2f" if self.dark.get() else "#f5f5f5"
+        self.canvas.config(bg=bg)
+        self.status.set("Canvas theme: " + ("dark" if self.dark.get() else "light"))
+
+    # ---------- canvas tab ----------
+    def build_draw(self):
+        self.canvas = tk.Canvas(self.tab_draw, width=420, height=220, bg="#f5f5f5", highlightthickness=0)
+        self.canvas.pack(padx=6, pady=6)
+        self.canvas.bind("<Button-1>", self.on_click)
+        ctl = tk.Frame(self.tab_draw)
+        ctl.pack(fill=tk.X, padx=6)
+        tk.Label(ctl, text="Speed").pack(side=tk.LEFT)
+        tk.Scale(ctl, from_=1, to=10, orient=tk.HORIZONTAL, variable=self.speed, length=120).pack(side=tk.LEFT, padx=6)
+        tk.Label(ctl, text="Size").pack(side=tk.LEFT)
+        self.size = tk.Spinbox(ctl, from_=6, to=40, width=4, command=self.restyle)
+        self.size.delete(0, tk.END)
+        self.size.insert(0, "16")
+        self.size.bind("<KeyRelease>", lambda e: self.restyle())
+        self.size.pack(side=tk.LEFT, padx=6)
+        tk.Radiobutton(ctl, text="Circle", variable=self.shape, value="oval", command=self.restyle).pack(side=tk.LEFT)
+        tk.Radiobutton(ctl, text="Square", variable=self.shape, value="rect", command=self.restyle).pack(side=tk.LEFT)
+        tk.Label(self.tab_draw, text="Click the canvas to spawn shapes", fg="#777").pack(pady=4)
+        for i in range(3):
+            self.spawn(70 + i * 140, 60)
+
+    def on_click(self, event):
+        self.spawn(event.x, event.y)
+
+    def draw_shape(self, x, y, r, color):
+        if self.shape.get() == "oval":
+            return self.canvas.create_oval(x - r, y - r, x + r, y + r, fill=color, outline="")
+        return self.canvas.create_rectangle(x - r, y - r, x + r, y + r, fill=color, outline="")
+
+    def spawn(self, x, y):
+        r = int(self.size.get() or 16)
+        color = random.choice(COLORS)
+        item = self.draw_shape(x, y, r, color)
+        self.balls.append({"id": item, "color": color, "dx": random.randint(-3, 3) or 2, "dy": random.randint(-3, 3) or -2})
+        self.status.set("Shapes: " + str(len(self.balls)))
+
+    def restyle(self):
+        # apply the current shape + size to every existing shape
+        r = int(self.size.get() or 16)
+        w = int(self.canvas.cget("width"))
+        h = int(self.canvas.cget("height"))
+        for ball in self.balls:
+            x1, y1, x2, y2 = self.canvas.coords(ball["id"])
+            cx = max(r, min(w - r, (x1 + x2) / 2))
+            cy = max(r, min(h - r, (y1 + y2) / 2))
+            self.canvas.delete(ball["id"])
+            ball["id"] = self.draw_shape(cx, cy, r, ball["color"])
+        self.status.set("Shape: " + self.shape.get() + ", size " + str(r))
+
+    def animate(self):
+        w = int(self.canvas.cget("width"))
+        h = int(self.canvas.cget("height"))
+        k = self.speed.get()
+        for ball in self.balls:
+            self.canvas.move(ball["id"], ball["dx"] * k / 3, ball["dy"] * k / 3)
+            x1, y1, x2, y2 = self.canvas.coords(ball["id"])
+            if x1 <= 0 or x2 >= w:
+                ball["dx"] = -ball["dx"]
+            if y1 <= 0 or y2 >= h:
+                ball["dy"] = -ball["dy"]
+        self.after(30, self.animate)
+
+    # ---------- photo tab ----------
+    def build_data(self):
+        self.photo_label = tk.Label(self.tab_data, text="Loading photo...", bg="#ddd", padx=100, pady=80)
+        self.photo_label.pack(pady=(6, 0))
+        self.author = tk.Label(self.tab_data, text="", fg="#555")
+        self.author.pack()
+        ctl = tk.Frame(self.tab_data)
+        ctl.pack(fill=tk.X, padx=6, pady=4)
+        tk.Checkbutton(ctl, text="Auto refresh", variable=self.auto, command=self.schedule_photo).pack(side=tk.LEFT)
+        tk.Label(ctl, text="every (s)").pack(side=tk.LEFT, padx=(8, 0))
+        tk.Scale(ctl, from_=3, to=15, orient=tk.HORIZONTAL, variable=self.interval, length=110, command=self.on_interval).pack(side=tk.LEFT)
+        tk.Button(ctl, text="Next photo", command=self.fetch_photo).pack(side=tk.LEFT, padx=6)
+        self.progress = ttk.Progressbar(ctl, length=90, mode="determinate")
+        self.progress.pack(side=tk.LEFT)
+        self.table = ttk.Treeview(self.tab_data, columns=("id", "author", "size"), show="headings", height=3)
+        self.table.heading("id", text="ID")
+        self.table.heading("author", text="Author")
+        self.table.heading("size", text="Original size")
+        self.table.pack(fill=tk.X, padx=6)
+        self.log = tk.Text(self.tab_data, height=3, width=52)
+        self.log.pack(fill=tk.X, padx=6, pady=6)
+
+    def on_interval(self, value):
+        self.schedule_photo()
+
+    def schedule_photo(self):
+        if self.job is not None:
+            self.after_cancel(self.job)
+            self.job = None
+        if self.auto.get():
+            self.job = self.after(self.interval.get() * 1000, self.fetch_photo)
+
+    def fetch_photo(self):
+        self.status.set("Fetching photo...")
+        self.progress.config(value=20)
+        try:
+            self.page += 1
+            meta = requests.get("https://picsum.photos/v2/list", params={"page": self.page, "limit": 1}, timeout=8).json()
+            info = meta[0]
+            self.progress.config(value=55)
+            url = "https://picsum.photos/id/" + str(info["id"]) + "/320/200"
+            raw = requests.get(url, timeout=10)
+            img = Image.open(BytesIO(raw.content)).resize((320, 200))
+            self.photo = ImageTk.PhotoImage(img)
+            self.photo_label.config(image=self.photo)
+            self.author.config(text="Photo by " + info["author"] + " (id " + str(info["id"]) + ")")
+            self.table.insert("", tk.END, values=(info["id"], info["author"], str(info["width"]) + "x" + str(info["height"])))
+            self.progress.config(value=100)
+            self.status.set("Photo loaded")
+            self.log_line("Loaded photo " + str(info["id"]))
+        except Exception as e:
+            self.progress.config(value=0)
+            self.status.set("Request failed")
+            self.log_line("Error: " + str(e))
+        self.schedule_photo()
+
+    def log_line(self, msg):
+        self.log.insert(tk.END, time.strftime("%H:%M:%S") + "  " + msg + "\n")
+        self.log.see(tk.END)
+
+    # ---------- misc ----------
+    def tick(self):
+        self.clock.config(text=time.strftime("%Y-%m-%d %H:%M:%S"))
+        self.after(1000, self.tick)
+
+    def about(self):
+        win = tk.Toplevel(self.master)
+        win.title("About")
+        win.geometry("260x120+80+80")
+        tk.Label(win, text="Tkinter → web demo\nConverted by tk2web", pady=14).pack()
+        tk.Button(win, text="Close", command=lambda: win.destroy()).pack()
+
+
+def main():
+    root = tk.Tk()
+    root.title("Task Board — tkinter → web")
+    root.geometry("560x570")
+    App(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
+</script>
+
+<script type="text/plain" id="css">
+body{margin:0;padding:16px;background:#c9ccd6;font:13px "Segoe UI",system-ui,sans-serif;min-height:100vh;box-sizing:border-box}
+#tk-root{position:relative}
+.win{display:inline-block;background:#f0f0f0;border:1px solid #666;box-shadow:3px 4px 14px #0005;color:#000;vertical-align:top}
+.win.top{position:absolute;left:40px;top:50px;z-index:5}
+.bar{display:flex;justify-content:space-between;background:linear-gradient(#3b7bd4,#2a5db0);color:#fff;padding:3px 8px;font-weight:600;font-size:12px}.bar b{cursor:pointer}
+.tk-body{position:relative;min-width:40px;min-height:20px;box-sizing:border-box}
+.tk{box-sizing:border-box}
+.tk-Label{white-space:pre-wrap;padding:1px 3px}
+.tk-Checkbutton,.tk-Radiobutton{display:flex;align-items:center;gap:4px;padding:1px 3px}
+.tk-Button{font:inherit;padding:2px 10px;border:2px outset #f2f2f2;background:#e3e3e3}.tk-Button:active{border-style:inset}.tk-Button:disabled{color:#888}
+.tk-Entry,.tk-Text,.tk-Listbox,.tk-Spinbox,.tk-Combobox{font:inherit;background:#fff;border:2px inset #ddd;padding:1px 3px}.tk-Text{resize:none}
+.tk-Canvas{display:block;background:#f0f0f0}
+.tk-LabelFrame{border:2px groove #eee;margin:0;padding:4px}
+#err{position:fixed;bottom:0;left:0;right:0;background:#b00;color:#fff;margin:0;padding:6px 10px;font:12px monospace;white-space:pre-wrap}
+</script>
+
+<script type="text/plain" id="rt">
+var LEFT="left",RIGHT="right",TOP="top",BOTTOM="bottom",CENTER="center",BOTH="both",X="x",Y="y",END="end",INSERT="insert",N="n",S="s",E="e",W="w",NW="nw",NE="ne",SW="sw",SE="se",NS="ns",EW="ew",NSEW="nsew",DISABLED="disabled",NORMAL="normal",ACTIVE="active",HORIZONTAL="horizontal",VERTICAL="vertical",WORD="word",FLAT="flat",RAISED="raised",SUNKEN="sunken",GROOVE="groove",RIDGE="ridge",SOLID="solid",SINGLE="single",BROWSE="browse",MULTIPLE="multiple",EXTENDED="extended",YES=true,NO=false,ALL="all";
+var len=x=>x==null?0:x.length!==undefined?x.length:Object.keys(x).length,
+range=(a,b,s=1)=>{if(b===undefined){b=a;a=0}const r=[];for(let i=a;s>0?i<b:i>b;i+=s)r.push(i);return r},
+int=x=>Math.trunc(Number(x)),float=x=>parseFloat(x),list=x=>Array.from(x),abs=Math.abs,
+iter=x=>x&&typeof x=='object'&&!Array.isArray(x)&&!(x instanceof Set)&&!(x instanceof Map)?Object.keys(x):x,
+enumerate=(a,s=0)=>Array.from(a,(v,i)=>[i+s,v]),
+inn=(a,b)=>typeof b=='string'||Array.isArray(b)?b.includes(a):b instanceof Set?b.has(a):a in b,
+sum=a=>a.reduce((p,c)=>p+c,0),round=(x,n=0)=>{const m=10**n;return Math.round(x*m)/m},
+min=(...a)=>Math.min(...(a.length==1?a[0]:a)),max=(...a)=>Math.max(...(a.length==1?a[0]:a)),
+sorted=a=>[...a].sort((x,y)=>x>y?1:x<y?-1:0),
+random={random:Math.random,randint:(a,b)=>a+Math.floor(Math.random()*(b-a+1)),choice:a=>a[Math.floor(Math.random()*a.length)],uniform:(a,b)=>a+Math.random()*(b-a)},
+strf=(f,d=new Date)=>f.replace(/%([HMSYymdIpAaBb])/g,(_,c)=>{const p=n=>String(n).padStart(2,'0'),L=(o)=>d.toLocaleString('en',o);return{H:p(d.getHours()),M:p(d.getMinutes()),S:p(d.getSeconds()),Y:d.getFullYear(),y:p(d.getFullYear()%100),m:p(d.getMonth()+1),d:p(d.getDate()),I:p(d.getHours()%12||12),p:d.getHours()<12?'AM':'PM',A:L({weekday:'long'}),a:L({weekday:'short'}),B:L({month:'long'}),b:L({month:'short'})}[c]}),
+time={time:()=>Date.now()/1000,sleep(){},strftime:(f,d)=>strf(f,d)},
+datetime={now(){const d=new Date;d.strftime=f=>strf(f,d);return d}},
+messagebox={showinfo:(t,m)=>alert(t+'\n\n'+(m??'')),showwarning:(t,m)=>alert(t+'\n\n'+(m??'')),showerror:(t,m)=>alert(t+'\n\n'+(m??'')),askyesno:(t,m)=>confirm(m),askokcancel:(t,m)=>confirm(m),askquestion:(t,m)=>confirm(m)?'yes':'no'},
+simpledialog={askstring:(t,p)=>prompt(p),askinteger:(t,p)=>{const v=prompt(p);return v===null?null:parseInt(v)},askfloat:(t,p)=>{const v=prompt(p);return v===null?null:parseFloat(v)}},
+KS={' ':'space',ArrowUp:'Up',ArrowDown:'Down',ArrowLeft:'Left',ArrowRight:'Right',Enter:'Return',Backspace:'BackSpace'};
+Object.defineProperty(Object.prototype,'get',{value(k,d){const v=this[k];return v===undefined?d:v},enumerable:false,writable:true,configurable:true});
+class Resp{constructor(r,t,u){this.text=t;this.content=u||t;this.status_code=this.status=r.status;this.ok=r.ok;this.reason=r.statusText;this.url=r.url;this.headers=Object.fromEntries(r.headers)}json(){return JSON.parse(this.text)}read(){return this.text}getcode(){return this.status}raise_for_status(){if(!this.ok)throw new Error(this.status+' '+this.reason+' for url: '+this.url)}}
+class AP extends Promise{static get[Symbol.species](){return Promise}json(){return this.then(r=>r.json())}read(){return this.then(r=>r.read())}raise_for_status(){return this.then(r=>r.raise_for_status())}}
+var _fx=(m,u,o)=>new AP((ok,no)=>(async()=>{o=o||{};const h={...(o.headers||{})};let b;
+if(o.params)u+=(u.includes('?')?'&':'?')+new URLSearchParams(o.params);
+if(o.json!==undefined){b=JSON.stringify(o.json);h['Content-Type']=h['Content-Type']||'application/json'}
+else if(o.data!==undefined){if(typeof o.data=='string')b=o.data;else{b=new URLSearchParams(o.data).toString();h['Content-Type']=h['Content-Type']||'application/x-www-form-urlencoded'}}
+const c=new AbortController,t=o.timeout?setTimeout(()=>c.abort(),o.timeout*1000):0;
+try{const r=await fetch(u,{method:m.toUpperCase(),headers:h,body:b,signal:c.signal});const buf=await r.arrayBuffer();return new Resp(r,new TextDecoder().decode(buf),URL.createObjectURL(new Blob([buf],{type:r.headers.get('content-type')||''})))}finally{clearTimeout(t)}})().then(ok,no));
+var requests={get:(u,o)=>_fx('GET',u,o),post:(u,o)=>_fx('POST',u,o),put:(u,o)=>_fx('PUT',u,o),delete:(u,o)=>_fx('DELETE',u,o),patch:(u,o)=>_fx('PATCH',u,o),head:(u,o)=>_fx('HEAD',u,o),request:(m,u,o)=>_fx(m,u,o)},httpx=requests,
+Request=(u,o)=>({url:u,...(o||{})}),
+urlopen=(r,o)=>{const q=typeof r=='string'?{url:r}:r;return _fx(q.method||(q.data!==undefined?'POST':'GET'),q.url,{headers:q.headers,data:q.data,timeout:(o||{}).timeout})},
+urllib={request:{urlopen,Request},parse:{urlencode:d=>new URLSearchParams(d).toString(),quote:encodeURIComponent,unquote:decodeURIComponent}},
+json={loads:JSON.parse,dumps:(x,o)=>JSON.stringify(x,null,o&&o.indent)},
+threading={Thread:o=>({start(){setTimeout(()=>o.target&&o.target(...(o.args||[])))},join(){},is_alive:()=>false}),Lock:()=>({acquire(){},release(){}})},Thread=threading.Thread,
+filedialog={askopenfilename:()=>'',asksaveasfilename:()=>'',askdirectory:()=>''},colorchooser={askcolor:()=>[null,prompt('Color (hex, e.g. #ff8800)')]},
+BytesIO=x=>x,Image={open:b=>({src:b,resize(z){this.w=z[0];this.h=z[1];return this},thumbnail(){}})},ImageTk={PhotoImage:i=>({src:i.src,w:i.w,h:i.h})};
+addEventListener('error',e=>{let b=document.getElementById('err');if(!b){b=document.createElement('pre');b.id='err';document.body.append(b)}b.textContent+=e.message+'\n'});
+function fp(f){const a=Array.isArray(f)?f:String(f).split(' ');return{fam:a[0],sz:a[1],st:a.slice(2).join(' ')}}
+function fontCss(s,f){const{fam,sz,st}=fp(f);if(fam&&!/^Tk/.test(fam))s.fontFamily='"'+fam+'",'+(/cour|mono|consol/i.test(fam)?'monospace':'sans-serif');if(sz)s.fontSize=(sz<0?-sz:sz*1.333)+'px';s.fontWeight=/bold/.test(st)?'bold':'';s.fontStyle=/italic/.test(st)?'italic':'';s.textDecoration=/underline/.test(st)?'underline':''}
+class Var{constructor(a,b){const o=[a,b].find(x=>x&&x.constructor===Object)||{};this._v=o.value!==undefined?o.value:this.constructor._d;this._s=[]}set(v){this._v=v;this._s.forEach(f=>f())}get(){return this._v}trace_add(m,f){this._s.push(()=>f())}trace(m,f){this.trace_add(m,f)}}
+class StringVar extends Var{static _d='';get(){return String(this._v)}}
+class IntVar extends Var{static _d=0;get(){return int(this._v)||0}}
+class DoubleVar extends Var{static _d=0;get(){return float(this._v)||0}}
+class BooleanVar extends Var{static _d=false;get(){return !!this._v}}
+var _root=null;
+class Misc{
+constructor(m,o){if(m&&!(m instanceof Misc)){o=m;m=null}this.master=m||_root;this.kids=[];this.g=null;this.o={};this._cw={};this._rw={};this.el=this._mk();this.el.classList.add('tk','tk-'+this.constructor._k);this.el._w=this;if(this.master)this.master.kids.push(this);this.config(o||{})}
+_mk(){return document.createElement('div')}body(){return this.el}_text(){}_state(){}
+config(o){if(typeof o=='string')return this.o[o];for(const k in o){this.o[k]=o[k];this._opt(k,o[k])}return this}configure(o){return this.config(o)}cget(k){return this.o[k]}
+_sz(d,v){const c=this.constructor._ch;this.el.style[d]=!v?'':c?(d=='width'?v+'ch':v*1.4+'em'):v+'px'}
+_opt(k,v){const s=this.el.style;switch(k){
+case'bg':case'background':s.background=v;break;case'fg':case'foreground':s.color=v;break;case'font':fontCss(s,v);break;
+case'width':case'height':this._sz(k,v);break;case'padx':s.paddingInline=v+'px';break;case'pady':s.paddingBlock=v+'px';break;
+case'bd':case'borderwidth':s.border=v+'px solid #888';break;
+case'relief':s.border=v=='flat'?'0':v=='raised'?'2px outset #eee':v=='sunken'?'2px inset #eee':v=='groove'?'2px groove #eee':'1px solid #666';break;
+case'cursor':s.cursor=/hand/.test(v)?'pointer':v=='watch'?'wait':v;break;
+case'anchor':s.textAlign=/w/.test(v)?'left':/e/.test(v)&&v!='center'?'right':'center';break;case'justify':s.textAlign=v;break;
+case'wraplength':s.maxWidth=v+'px';s.whiteSpace='normal';break;
+case'text':this._text(v);break;case'state':this._state(v);break;case'command':this._cmd=v;break;
+case'textvariable':this._tv=v;v._s.push(()=>this._fv());this._fv();break}}
+_fv(){this._text(this._tv.get())}
+_geo(m,o){const p=this.master;if(!p)return this;this.g={m,o:o||{}};p.body().appendChild(this.el);p._layout();return this}
+pack(o){return this._geo('pack',o)}grid(o){return this._geo('grid',o)}place(o){return this._geo('place',o)}
+pack_forget(){this.g=null;this.el.remove();this.master&&this.master._layout()}grid_forget(){this.pack_forget()}grid_remove(){this.pack_forget()}place_forget(){this.pack_forget()}
+columnconfigure(i,o){[].concat(i).forEach(j=>this._cw[j]=(o||{}).weight||0);this._layout();return this}
+rowconfigure(i,o){[].concat(i).forEach(j=>this._rw[j]=(o||{}).weight||0);this._layout();return this}
+grid_columnconfigure(i,o){return this.columnconfigure(i,o)}grid_rowconfigure(i,o){return this.rowconfigure(i,o)}
+_layout(){const b=this.body(),ks=[...b.children].map(e=>e._w).filter(w=>w&&w.g);if(!ks.length)return;
+const gr=ks.some(k=>k.g.m=='grid'),A=v=>Array.isArray(v)?v:[v||0,v||0];let col=true,pi=0;
+b.style.display=gr?'grid':'flex';b.style.position=b.style.position||'relative';
+if(gr){const nc=Math.max(...ks.map(k=>(k.g.o.column||0)+(k.g.o.columnspan||1))),nr=Math.max(...ks.map(k=>(k.g.o.row||0)+(k.g.o.rowspan||1)));
+b.style.gridTemplateColumns=Array.from({length:nc},(_,i)=>this._cw[i]?`minmax(0,${this._cw[i]}fr)`:'auto').join(' ');
+b.style.gridTemplateRows=Array.from({length:nr},(_,i)=>this._rw[i]?`minmax(0,${this._rw[i]}fr)`:'auto').join(' ')}
+else{const p0=ks.find(k=>k.g.m=='pack'),d=p0?p0.g.o.side||TOP:TOP;col=d==TOP||d==BOTTOM;b.style.flexDirection=col?'column':'row';b.style.gridTemplateColumns=b.style.gridTemplateRows=''}
+for(const k of ks){const o=k.g.o,s=k.el.style,px=A(o.padx),py=A(o.pady),an=o.anchor&&o.anchor!='center'?o.anchor:'';let m=[py[0]+'px',px[1]+'px',py[1]+'px',px[0]+'px'];
+s.position=s.order=s.flex=s.alignSelf=s.justifySelf=s.gridColumn=s.gridRow=s.transform='';
+if(o.ipadx!=null)s.paddingInline=o.ipadx+'px';if(o.ipady!=null)s.paddingBlock=o.ipady+'px';
+if(k.g.m=='grid'){const sk=o.sticky||'',h=c=>sk.includes(c);s.gridColumn=`${(o.column||0)+1} / span ${o.columnspan||1}`;s.gridRow=`${(o.row||0)+1} / span ${o.rowspan||1}`;
+s.justifySelf=h('e')&&h('w')?'stretch':h('w')?'start':h('e')?'end':'center';s.alignSelf=h('n')&&h('s')?'stretch':h('n')?'start':h('s')?'end':'center'}
+else if(k.g.m=='place'){s.position='absolute';s.left=o.relx!=null?o.relx*100+'%':(o.x||0)+'px';s.top=o.rely!=null?o.rely*100+'%':(o.y||0)+'px';
+if(o.width)s.width=o.width+'px';if(o.height)s.height=o.height+'px';if(o.relwidth!=null)s.width=o.relwidth*100+'%';if(o.relheight!=null)s.height=o.relheight*100+'%';
+const a=o.anchor||'nw',c=a=='center';s.transform=`translate(${c?-50:a.includes('e')?-100:a.includes('w')?0:-50}%,${c?-50:a.includes('s')?-100:a.includes('n')?0:-50}%)`;m=['0']}
+else{const side=o.side||TOP,f=o.fill||'none',cf=col?(f==X||f==BOTH):(f==Y||f==BOTH),mf=col?(f==Y||f==BOTH):(f==X||f==BOTH);
+s.order=(side==BOTTOM||side==RIGHT)?1000-pi:pi;pi++;
+s.alignSelf=cf?'stretch':col?(an.includes('w')?'flex-start':an.includes('e')?'flex-end':'center'):(an.includes('n')?'flex-start':an.includes('s')?'flex-end':'center');
+if(o.expand){if(mf)s.flex='1 1 auto';else if(col)m[0]=m[2]='auto';else m[1]=m[3]='auto'}}
+s.margin=m.join(' ')}}
+bind(seq,fn){const t=/^<</.test(seq)?['chg']:seq.replace(/^<|>$/g,'').split('-'),M=['Control','Shift','Alt','Double','Triple','Any'],mods=t.filter(x=>M.includes(x)),r=t.filter(x=>!M.includes(x)),r0=r[0]||'';let type,btn=null,key=null,drag=0;
+if(t[0]=='chg')type='change';
+else if(/^Button(Press)?$/.test(r0)){type=mods.includes('Double')?'dblclick':'mousedown';btn=r[1]?{1:0,2:1,3:2}[r[1]]:null}
+else if(r0=='ButtonRelease')type='mouseup';
+else if(r.includes('Motion')){type='mousemove';drag=r0=='B1'}
+else if(r0=='Enter'||r0=='Leave')type='mouse'+r0.toLowerCase();
+else if(r0=='MouseWheel')type='wheel';
+else if(r0=='FocusIn'||r0=='FocusOut')type=r0.toLowerCase();
+else if(r0=='Configure'||r0=='Map'||r0=='Destroy')return this;
+else{type=r0=='KeyRelease'?'keyup':'keydown';key=r.filter(x=>!/^Key(Press|Release)?$/.test(x)).join('-')||null}
+const kb=type.startsWith('key'),tg=kb&&!this.constructor._foc?document:this.el;
+tg.addEventListener(type,e=>{if(btn!=null&&e.button!=btn)return;if(drag&&!(e.buttons&1))return;let ks;
+if(kb){ks=KS[e.key]||e.key;if(key){if(key.toLowerCase()!=ks.toLowerCase())return;if(mods.includes('Control')!=!!(e.ctrlKey||e.metaKey))return}}
+const b=this.el.getBoundingClientRect();fn({x:e.clientX-b.left,y:e.clientY-b.top,x_root:e.screenX,y_root:e.screenY,widget:this,keysym:ks,char:e.key&&e.key.length==1?e.key:'',keycode:e.keyCode,delta:-(e.deltaY||0),num:e.button+1})});return this}
+bind_all(s,f){return(_root||this).bind(s,f)}unbind(){}
+after(ms,fn,...a){return typeof fn=='function'?setTimeout(()=>{this._dead||fn(...a)},ms):0}after_idle(f,...a){return this.after(0,f,...a)}after_cancel(id){clearTimeout(id)}
+destroy(){this._dead=true;[...this.kids].forEach(k=>k.destroy());this.el.remove();const m=this.master;if(m){m.kids=m.kids.filter(k=>k!==this);m._layout()}}
+winfo_width(){return this.el.offsetWidth}winfo_height(){return this.el.offsetHeight}winfo_reqwidth(){return this.el.offsetWidth}winfo_reqheight(){return this.el.offsetHeight}
+winfo_x(){return this.el.offsetLeft}winfo_y(){return this.el.offsetTop}winfo_children(){return this.kids}winfo_screenwidth(){return innerWidth}winfo_screenheight(){return innerHeight}
+update(){}update_idletasks(){}focus_set(){this.el.focus()}focus(){this.el.focus()}focus_force(){this.el.focus()}lift(){}
+pack_propagate(){}grid_propagate(){}propagate(){}yview(){}xview(){}option_add(){}}
+class Win extends Misc{_mk(){const w=document.createElement('div'),h=document.createElement('div'),b=this._b=document.createElement('div');this._h=document.createElement('span');h.className='bar';h.append(this._h);b.className='tk-body';w.className='win'+(this.constructor._top?' top':'');
+if(this.constructor._top){const x=document.createElement('b');x.textContent='×';x.onclick=()=>this.destroy();h.append(x)}w.append(h,b);document.getElementById('tk-root').append(w);this.title('tk');return w}
+body(){return this._b}
+_opt(k,v){if(k=='bg'||k=='background')this._b.style.background=v;else if(k=='width'||k=='height')this._b.style[k]=v+'px';else if(k=='menu')this._mb(v)}
+_mb(m){let b=this._bar;if(!b){b=this._bar=document.createElement('div');b.style.cssText='display:flex;background:#e8e8e8;border-bottom:1px solid #aaa;position:relative;z-index:9';this.el.insertBefore(b,this._b)}b.innerHTML='';
+for(const it of m.items){const t=document.createElement('div'),dd=document.createElement('div');t.textContent=it.label||'';t.style.cssText='padding:2px 10px;position:relative';dd.style.cssText='display:none;position:absolute;left:0;top:100%;background:#f4f4f4;border:1px solid #888;min-width:130px;box-shadow:2px 3px 6px #0004;color:#000';t.append(dd);
+t.onmouseenter=()=>{dd.innerHTML='';for(const s of it.sub?it.sub.items:[it]){const r=document.createElement('div');if(s.sep)r.style.cssText='border-top:1px solid #bbb;margin:3px 0';else{r.textContent=s.label||'';r.style.cssText='padding:3px 14px;white-space:nowrap';r.onmouseenter=()=>r.style.background='#cfe0ff';r.onmouseleave=()=>r.style.background='';r.onclick=e=>{e.stopPropagation();dd.style.display='none';s.command&&s.command()}}dd.append(r)}dd.style.display='block'};
+t.onmouseleave=()=>dd.style.display='none';b.append(t)}}
+title(t){if(t===undefined)return this._h.textContent;this._h.textContent=t;if(!this.constructor._top)document.title=t}wm_title(t){return this.title(t)}
+geometry(g){if(g===undefined)return this.el.offsetWidth+'x'+this.el.offsetHeight;const m=/(\d+)x(\d+)/.exec(g),p=/\+(\d+)\+(\d+)/.exec(g);if(m){this._b.style.width=m[1]+'px';this._b.style.height=m[2]+'px'}if(p&&this.constructor._top){this.el.style.left=p[1]+'px';this.el.style.top=p[2]+'px'}}
+resizable(){}minsize(){}maxsize(){}attributes(){}iconbitmap(){}protocol(){}transient(){}grab_set(){}overrideredirect(){}state(){}mainloop(){}quit(){this.destroy()}
+withdraw(){this.el.style.display='none'}deiconify(){this.el.style.display=''}}
+class Tk extends Win{static _k='Tk';constructor(){super();_root=this}}
+class Toplevel extends Win{static _k='Toplevel';static _top=1}
+class Frame extends Misc{static _k='Frame'}
+class LabelFrame extends Misc{static _k='LabelFrame';_mk(){const f=document.createElement('fieldset');this._lg=document.createElement('legend');f.append(this._lg);return f}_text(v){this._lg.textContent=v}}
+class Label extends Misc{static _k='Label';static _ch=1;_text(v){this.el.textContent=v}
+_opt(k,v){if(k=='image'){if(!this._im){this._im=document.createElement('img');this._im.style.cssText='display:block;max-width:100%'}this.el.textContent='';if(v&&v.src){this._im.src=v.src;if(v.w){this._im.width=v.w;this._im.height=v.h}this.el.append(this._im)}}else super._opt(k,v)}}
+class Button extends Misc{static _k='Button';static _ch=1;static _foc=1;_mk(){const b=document.createElement('button');b.onclick=()=>this._cmd&&this._cmd();return b}_text(v){this.el.textContent=v}_state(v){this.el.disabled=v=='disabled'}invoke(){this._cmd&&this._cmd()}flash(){}}
+class Entry extends Misc{static _k='Entry';static _ch=1;static _foc=1;_mk(){const i=document.createElement('input');i.oninput=()=>this._tv&&this._tv.set(i.value);return i}
+get(){return this.el.value}_fv(){const v=this._tv.get();if(this.el.value!=v)this.el.value=v}
+insert(i,s){const v=this.el.value,n=i=='end'?v.length:i;this.el.value=v.slice(0,n)+s+v.slice(n);this.el.oninput()}
+delete(a,b){const v=this.el.value;a=a=='end'?v.length:a;b=b===undefined?a+1:b=='end'?v.length:b;this.el.value=v.slice(0,a)+v.slice(b);this.el.oninput()}
+_state(v){this.el.disabled=v=='disabled';this.el.readOnly=v=='readonly'}icursor(){}
+_opt(k,v){if(k=='show')this.el.type=v?'password':'text';else super._opt(k,v)}}
+class Text extends Misc{static _k='Text';static _ch=1;static _foc=1;_mk(){return document.createElement('textarea')}
+get(a,b){return b=='end-1c'?this.el.value:this.el.value+'\n'}insert(i,s){const e=this.el;e.value=i=='1.0'?s+e.value:e.value+s}delete(){this.el.value=''}see(){this.el.scrollTop=1e9}
+_state(v){this.el.readOnly=v=='disabled'}_opt(k,v){if(k=='wrap')this.el.wrap=v=='none'?'off':'soft';else super._opt(k,v)}}
+class Chk extends Misc{static _ch=1;static _foc=1;_mk(){const l=document.createElement('label'),i=this._i=document.createElement('input');i.type=this.constructor._t;this._sp=document.createElement('span');l.append(i,this._sp);i.onchange=()=>{this._on(i.checked);this._cmd&&this._cmd()};return l}
+_text(v){this._sp.textContent=v}_state(v){this._i.disabled=v=='disabled'}invoke(){this._i.checked=!this._i.checked;this._i.onchange()}
+_opt(k,v){if(k=='variable'){this._var=v;v._s.push(()=>this._sync())}else super._opt(k,v);if(this._var&&/variable|value/.test(k))this._sync()}}
+class Checkbutton extends Chk{static _k='Checkbutton';static _t='checkbox';
+_on(c){const o=this.o,b=this._var instanceof BooleanVar;this._var&&this._var.set(c?(o.onvalue!==undefined?o.onvalue:b||1):(o.offvalue!==undefined?o.offvalue:b?false:0))}
+_sync(){const x=this._var.get(),o=this.o;this._i.checked=o.onvalue!==undefined?x==o.onvalue:!!Number(x)}
+select(){this._i.checked=true;this._on(true)}deselect(){this._i.checked=false;this._on(false)}toggle(){this.invoke()}}
+class Radiobutton extends Chk{static _k='Radiobutton';static _t='radio';_on(c){if(c&&this._var)this._var.set(this.o.value)}_sync(){this._i.checked=this._var.get()==this.o.value}select(){this._var.set(this.o.value)}}
+class Scale extends Misc{static _k='Scale';_mk(){const d=document.createElement('div'),i=this._i=document.createElement('input');i.type='range';i.min=0;i.max=100;d.append(i);i.oninput=()=>{this._var&&this._var.set(this.get());this._cmd&&this._cmd(i.value)};return d}
+get(){return+this._i.value}set(v){this._i.value=v;this._var&&this._var.set(+v)}
+_opt(k,v){const i=this._i;if(k=='from_')i.min=v;else if(k=='to')i.max=v;else if(k=='resolution')i.step=v;else if(k=='length')i.style.width=v+'px';
+else if(k=='orient'){if(v=='vertical'){i.style.writingMode='vertical-lr';i.style.direction='rtl'}}else if(k=='variable'){this._var=v;v._s.push(()=>{i.value=v.get()});i.value=v.get()}else super._opt(k,v)}}
+class Listbox extends Misc{static _k='Listbox';static _ch=1;static _foc=1;_mk(){const s=document.createElement('select');s.size=6;return s}
+_opt(k,v){if(k=='height')this.el.size=v||6;else if(k=='selectmode')this.el.multiple=/multi|ext/.test(v);else super._opt(k,v)}
+insert(i,...a){a.forEach((t,j)=>this.el.add(new Option(t,t),i=='end'?null:this.el.options[i+j]||null))}
+delete(a,b){const n=this.el.options.length;a=a=='end'?n-1:a;b=b===undefined?a:b=='end'?n-1:b;for(let i=b;i>=a;i--)this.el.remove(i)}
+get(a,b){const o=[...this.el.options].map(x=>x.text),n=o.length;a=a=='end'?n-1:a;if(b===undefined)return o[a];return o.slice(a,(b=='end'?n-1:b)+1)}
+curselection(){return[...this.el.selectedOptions].map(o=>o.index)}size(){return this.el.options.length}
+selection_set(i){this.el.selectedIndex=i}selection_clear(){this.el.selectedIndex=-1}see(){}activate(){}}
+class Scrollbar extends Misc{static _k='Scrollbar';_mk(){const d=document.createElement('div');d.style.display='none';return d}set(){}}
+class Menu{constructor(m,o){this.items=[]}add_command(o){this.items.push(o||{})}add_checkbutton(o){this.items.push(o||{})}add_radiobutton(o){this.items.push(o||{})}add_separator(){this.items.push({sep:1})}add_cascade(o){this.items.push({...o,sub:o&&o.menu})}}
+class Style{configure(){}theme_use(){}map(){}}class PhotoImage{constructor(o){o=o||{};this.src=o.file||o.data||''}}
+var Message=Label,PanedWindow=Frame,ScrolledText=Text,Menubutton=Button;
+class Spinbox extends Entry{static _k='Spinbox';_mk(){const i=super._mk();i.type='number';return i}
+_opt(k,v){const i=this.el;if(k=='from_')i.min=v;else if(k=='to')i.max=v;else if(k=='increment')i.step=v;else if(k=='command'){i.addEventListener('change',()=>v());i.addEventListener('input',()=>v())}else super._opt(k,v)}}
+class Combobox extends Misc{static _k='Combobox';static _ch=1;static _foc=1;_mk(){const s=document.createElement('select');s.onchange=()=>this._tv&&this._tv.set(s.value);return s}
+_opt(k,v){if(k=='values'){this.el.replaceChildren(...[...v].map(x=>new Option(x,x)));if(this._tv)this._fv()}else super._opt(k,v)}
+get(){return this.el.value}set(v){this.el.value=v;this._tv&&this._tv.set(v)}current(i){if(i===undefined)return this.el.selectedIndex;this.el.selectedIndex=i;this._tv&&this._tv.set(this.el.value)}
+_fv(){this.el.value=this._tv.get()}_state(v){this.el.disabled=v=='disabled'}}
+class OptionMenu extends Combobox{constructor(m,v,...a){const o=a.length&&typeof a[a.length-1]=='object'?a.pop():{};super(m,{textvariable:v,values:a,...o})}}
+class Progressbar extends Misc{static _k='Progressbar';_mk(){const p=document.createElement('progress');p.max=100;p.value=0;return p}
+_opt(k,v){const p=this.el;if(k=='maximum')p.max=v;else if(k=='value')p.value=v;else if(k=='length')p.style.width=v+'px';else if(k=='mode'&&v=='indeterminate')p.removeAttribute('value');else super._opt(k,v)}
+step(n=1){this.el.value=(+this.el.value||0)+n}start(){this.el.removeAttribute('value')}stop(){this.el.value=0}}
+class Separator extends Misc{static _k='Separator';_mk(){const h=document.createElement('hr');h.style.cssText='margin:4px 0;border:0;border-top:1px solid #999';return h}
+_opt(k,v){if(k=='orient'&&v=='vertical')this.el.style.cssText='margin:0 4px;border:0;border-left:1px solid #999;width:0'}}
+class Notebook extends Misc{static _k='Notebook';_mk(){const d=document.createElement('div');this._tb=document.createElement('div');this._tb.style.cssText='display:flex;gap:2px';this._pg=document.createElement('div');this._pg.className='tk-body';this._pg.style.flex='1 1 auto';d.style.cssText='display:flex;flex-direction:column';d.append(this._tb,this._pg);this._tabs=[];return d}
+body(){return this._pg}
+add(w,o){const b=document.createElement('button');b.className='tk-Button';b.textContent=(o||{}).text||'Tab';b.onclick=()=>this.select(w);this._tb.append(b);this._tabs.push([w,b]);w.g={m:'pack',o:{fill:BOTH,expand:1}};this._pg.append(w.el);this._layout();this.select(this._cur===undefined?w:this._cur)}
+select(w){if(w===undefined)return this._cur;this._cur=w;this._tabs.forEach(([x,b])=>{x.el.style.display=x==w?'':'none';b.style.borderStyle=x==w?'inset':'outset'})}}
+class Treeview extends Misc{static _k='Treeview';_mk(){const d=document.createElement('div');d.style.cssText='overflow:auto;background:#fff;border:2px inset #ddd;height:160px';this._t=document.createElement('table');this._t.style.cssText='border-collapse:collapse;width:100%';d.append(this._t);this._r={};this._n=0;this._sel=[];this._cols=[];this._ht={};return d}
+_opt(k,v){if(k=='columns'){this._cols=[].concat(v);this._hd()}else if(k=='height')this.el.style.height=v*20+'px';else super._opt(k,v)}
+_hd(){const h=this._t.tHead||this._t.createTHead();h.innerHTML='';const r=h.insertRow();this._cols.forEach(c=>{const th=document.createElement('th');th.textContent=this._ht[c]||c;th.style.cssText='background:#e3e3e3;border:1px solid #bbb;padding:2px 6px;text-align:left;position:sticky;top:0';r.append(th)})}
+heading(c,o){this._ht[c]=(o||{}).text||c;this._hd()}column(){}
+insert(p,i,o){o=o||{};const id=o.iid||'I'+(++this._n),r=(this._t.tBodies[0]||this._t.createTBody()).insertRow(i=='end'?-1:i);(this._cols.length?o.values||[]:[o.text||'']).forEach(v=>{const c=r.insertCell();c.textContent=v;c.style.cssText='border:1px solid #ddd;padding:2px 6px'});
+r.onclick=()=>{this._sel=[id];[...this._t.tBodies[0].rows].forEach(x=>x.style.background=x==r?'#cfe0ff':'');this.el.dispatchEvent(new Event('change'))};this._r[id]={r,o};return id}
+delete(...ids){ids.flat().forEach(i=>{this._r[i]&&this._r[i].r.remove();delete this._r[i]})}
+get_children(){return Object.keys(this._r)}selection(){return this._sel}selection_set(i){this._sel=[].concat(i)}
+item(i){const x=this._r[i];return x?{text:x.o.text,values:x.o.values||[...x.r.cells].map(c=>c.textContent)}:{}}}
+class Canvas extends Misc{static _k='Canvas';static _foc=1;
+_mk(){const c=document.createElement('canvas');c.width=378;c.height=265;c.tabIndex=0;this.it=[];this._n=0;return c}
+_sz(d,v){this.el[d]=v;this._d()}
+_add(t,a){const o=a.length&&typeof a[a.length-1]=='object'&&!Array.isArray(a[a.length-1])?a.pop():{};this.it.push({id:++this._n,t,c:a.flat(),o});this._d();return this._n}
+create_rectangle(...a){return this._add('r',a)}create_oval(...a){return this._add('o',a)}create_line(...a){return this._add('l',a)}create_text(...a){return this._add('t',a)}create_polygon(...a){return this._add('p',a)}
+_m(id){return this.it.filter(i=>id=='all'||i.id==id||[].concat(i.o.tags||[]).includes(id))}
+delete(id){const m=this._m(id);this.it=this.it.filter(i=>!m.includes(i));this._d()}
+move(id,dx,dy){this._m(id).forEach(i=>i.c=i.c.map((v,k)=>v+(k%2?dy:dx)));this._d()}
+coords(id,...c){const i=this._m(id)[0];if(!i)return[];if(c.length){i.c=c.flat();this._d()}return i.c}
+itemconfig(id,o){this._m(id).forEach(i=>Object.assign(i.o,o));this._d()}itemconfigure(id,o){this.itemconfig(id,o)}
+_d(){if(this._r)return;this._r=requestAnimationFrame(()=>{this._r=0;const c=this.el,x=c.getContext('2d');x.clearRect(0,0,c.width,c.height);
+for(const i of this.it){const o=i.o,k=i.c,f=o.fill,ol=o.outline===undefined?'black':o.outline;x.beginPath();x.lineWidth=o.width||1;
+if(i.t=='r')x.rect(k[0],k[1],k[2]-k[0],k[3]-k[1]);
+else if(i.t=='o')x.ellipse((k[0]+k[2])/2,(k[1]+k[3])/2,Math.abs(k[2]-k[0])/2,Math.abs(k[3]-k[1])/2,0,0,7);
+else if(i.t=='t'){const{fam,sz,st}=fp(o.font||'Arial 12'),a=o.anchor||'center';x.font=`${/italic/.test(st)?'italic ':''}${/bold/.test(st)?'bold ':''}${sz?(sz<0?-sz:sz*1.333):12}px ${fam&&!/^Tk/.test(fam)?'"'+fam+'"':'sans-serif'}`;
+x.fillStyle=f||'black';x.textAlign=a=='center'?'center':/w/.test(a)?'left':/e/.test(a)?'right':'center';x.textBaseline='middle';x.fillText(o.text||'',k[0],k[1]);continue}
+else{k.forEach((v,j)=>{if(j%2==0)j?x.lineTo(v,k[j+1]):x.moveTo(v,k[j+1])});if(i.t=='p')x.closePath()}
+if(i.t=='l'){x.strokeStyle=f||'black';x.stroke();continue}
+if(f){x.fillStyle=f;x.fill()}if(ol){x.strokeStyle=ol;x.stroke()}}})}}
+</script>
+
+<script>
+const SO='<'+'script>',SC='<'+'/script>',$=id=>document.getElementById(id);
+const CLS=['Tk','Toplevel','Frame','LabelFrame','Label','Button','Entry','Text','Canvas','Checkbutton','Radiobutton','Scale','Listbox','Scrollbar','Menu','Spinbox','Combobox','OptionMenu','Progressbar','Separator','Notebook','Treeview','Message','PanedWindow','ScrolledText','Menubutton','Style','PhotoImage','StringVar','IntVar','DoubleVar','BooleanVar'];
+
+function splitTop(s){const r=[];let d=0,c='';for(const ch of s){if('([{'.includes(ch))d++;else if(')]}'.includes(ch))d--;if(ch==','&&!d){r.push(c);c=''}else c+=ch}if(c.trim()||r.length)r.push(c);return r}
+function topColon(t){let d=0;for(let i=0;i<t.length;i++){const c=t[i];if('([{'.includes(c))d++;else if(')]}'.includes(c))d--;else if(c==':'&&!d)return i}return -1}
+const fixT=s=>{const m=s.match(/^(.+?)\s+if\s+(.+?)\s+else\s+(.+)$/);return m?`(${m[2]}) ? ${m[1]} : ${fixT(m[3])}`:s};
+
+/* ---------- Python -> JS (subset) ---------- */
+function convert(src){
+  const strs=[],warn=[],methods=new Set(),G=new Set(),uc=[],AS=new Set(),WN=new Set();let curAsync=true;
+  src=src.replace(/\r/g,'').replace(/#[^\n]*|([fFrRbBuU]{0,2})("""[\s\S]*?"""|'''[\s\S]*?'''|"(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')/g,(m,p,s)=>{
+    if(s===undefined)return '';strs.push({p:p.toLowerCase(),s});return '\u0001'+(strs.length-1)+'\u0001'});
+  // join continuation lines, expand "if x: stmt"
+  const lines=[];let buf='',depth=0,ind=0;
+  for(const l of src.split('\n')){
+    if(!buf){if(!l.trim())continue;ind=l.match(/^[ \t]*/)[0].replace(/\t/g,'    ').length}
+    buf+=(buf?' ':'')+l.trim();depth+=(l.match(/[(\[{]/g)||[]).length-(l.match(/[)\]}]/g)||[]).length;
+    if(depth<=0){const t=buf;buf='';depth=0;const i=/^(if|elif|else|while|for|try|except|finally|with|def|class)\b/.test(t)?topColon(t):-1;
+      if(i>=0&&i<t.length-1){lines.push({ind,t:t.slice(0,i+1)},{ind:ind+4,t:t.slice(i+1).trim()})}else lines.push({ind,t})}
+  }
+  for(const {t} of lines){let m;if(m=t.match(/^class\s+(\w+)/))uc.push(m[1]);if(m=t.match(/^def\s+(\w+)\s*\(\s*self\b/))methods.add(m[1]);
+    for(const [re,msg] of [[/[\[({][^\])}]*\sfor\s.+\sin\s/,'comprehensions'],[/\.format\(/,'str.format'],[/\.join\(/,'str.join()'],[/\w\[[^\]]*:[^\]]*\]/,'slicing'],[/\u0001\s*%\s*[\w(]/,'% formatting'],[/^with\b/,'with-blocks'],[/\byield\b/,'generators']])
+      if(re.test(t)&&!warn.includes(msg))warn.push(msg)}
+  if(warn.length)warn[0]='Not translated (review by hand): '+warn[0];
+  // pre-pass: any def that does HTTP (or calls such a def) becomes async
+  const NET=/(?<![\w.])(?:(?:requests|httpx)\.(?:get|post|put|delete|patch|head|request)|urllib\.request\.urlopen|urlopen)\s*\(/,NETG=new RegExp(NET.source,'g'),ds=[],calls=[];
+  for(const {ind,t} of lines){while(ds.length&&ds[ds.length-1].ind>=ind)ds.pop();let m;
+    if(m=t.match(/^def\s+(\w+)/)){ds.push({ind,n:m[1]});continue}
+    if(m=t.match(/^([\w.]+)\s*=\s*(?:(?:tk|ttk)\.)?(?:Tk|Toplevel|Frame|LabelFrame|Label|Button|Entry|Text|Canvas|Checkbutton|Radiobutton|Scale|Listbox|Spinbox|Combobox|Progressbar|Notebook|Treeview)\s*\(/))WN.add(m[1]);
+    const d=ds[ds.length-1];if(d){if(NET.test(t))AS.add(d.n);calls.push([d.n,t])}}
+  for(let ch=1;ch;){ch=0;for(const [d,t] of calls)if(d!='__init__'&&!AS.has(d)&&[...AS].some(n=>new RegExp('(?<![\\w.])(?:self\\.)?'+n+'\\s*\\(').test(t))){AS.add(d);ch=1}}
+  AS.delete('__init__');
+  const NEWRE=new RegExp('(?<![\\w.])(?<!new )(?:'+CLS.concat(uc).join('|')+')(?=\\s*\\()','g');
+
+  function lit({p,s}){const t=s.startsWith('"""')||s.startsWith("'''"),b=s.slice(t?3:1,t?-3:-1);
+    if(p.includes('f'))return '`'+b.replace(/`/g,'\\`').replace(/\{\{|\}\}|\{([^{}]+)\}/g,(m,e)=>m=='{{'?'{':m=='}}'?'}':'${'+fx(e)+'}')+'`';
+    if(t)return '`'+b.replace(/`/g,'\\`')+'`';return p.includes('r')?JSON.stringify(b):s}
+  function fx(e){const m=e.match(/^(.*?)(?:!\w)?(?::([^:]*))?$/),f=m[2];let x=ex(m[1].trim()),q;
+    if(f&&(q=f.match(/^\.(\d+)f$/)))x=`(${x}).toFixed(${q[1]})`;else if(f&&(q=f.match(/^0?(\d+)d$/)))x=`String(${x}).padStart(${q[1]},"0")`;return x}
+
+  function ex(s){
+    const lam=/\blambda\b/.test(s);
+    s=s.replace(/\b(tk|tkinter|ttk|scrolledtext)\./g,'')
+      .replace(/\blambda\b\s*([^:]*):\s*/g,(m,a)=>'('+a.trim()+') => ')
+      .replace(/(?<![=!<>])==(?!=)/g,'===').replace(/!=(?!=)/g,'!==')
+      .replace(/\bis\s+not\b/g,'!==').replace(/\bis\b/g,'===')
+      .replace(/\bTrue\b/g,'true').replace(/\bFalse\b/g,'false').replace(/\bNone\b/g,'null')
+      .replace(/\band\b/g,'&&').replace(/\bor\b/g,'||')
+      .replace(/([\w.\u0001]+)\s+not\s+in\s+([\w.\u0001]+)/g,'!inn($1, $2)')
+      .replace(/([\w.\u0001]+)\s+in\s+([\w.\u0001]+)/g,'inn($1, $2)')
+      .replace(/\bnot\b/g,'!')
+      .replace(/\bself\.(\w+)(?!\w|\s*\()/g,(m,n)=>methods.has(n)?'this.'+n+'.bind(this)':m)
+      .replace(/\bself\b/g,'this')
+      .replace(/\bmath\.pi\b/g,'Math.PI').replace(/\bmath\./g,'Math.').replace(/\bdatetime\.datetime\b/g,'datetime')
+      .replace(/\bprint\s*\(/g,'console.log(').replace(/\bstr\s*\(/g,'String(')
+      .replace(/\.append\(/g,'.push(').replace(/\.upper\(\)/g,'.toUpperCase()').replace(/\.lower\(\)/g,'.toLowerCase()').replace(/\.strip\(\)/g,'.trim()')
+      .replace(/\.startswith\(/g,'.startsWith(').replace(/\.endswith\(/g,'.endsWith(').replace(/\.split\(\)/g,'.trim().split(/\\s+/)')
+      .replace(/([\w.]+)\.items\(\)/g,'Object.entries($1)').replace(/([\w.]+)\.keys\(\)/g,'Object.keys($1)').replace(/([\w.]+)\.values\(\)/g,'Object.values($1)')
+      .replace(/([\w.]+)\s*\/\/\s*([\w.]+)/g,'Math.floor($1 / $2)')
+      .replace(NEWRE,m=>'new '+m).replace(/([(,]\s*)\*(?!\*)(?=\w)/g,'$1...').replace(/\.(?:decode|encode)\([^()]*\)/g,'');
+    if(curAsync&&!lam){s=s.replace(NETG,m=>'await '+m);for(const n of AS)s=s.replace(new RegExp('(?<![\\w.])((?:this\\.)?'+n+')\\s*\\(','g'),'await $1(')}
+    const P=[];let prev;
+    do{prev=s;s=s.replace(/\(([^()]*)\)/g,(m,inner,off,all)=>{
+      const ps=splitTop(inner),pos=[],kw=[];
+      for(let a of ps){a=a.trim();if(!a)continue;const k=a.match(/^([A-Za-z_]\w*)\s*=(?![=>])\s*([\s\S]+)$/);k?kw.push(k[1]+': '+fixT(k[2])):pos.push(fixT(a))}
+      const bef=all.slice(0,off),call=(/[\w\u0001\u0002\]]\s*$/.test(bef)&&!/(^|[^\w.])(return|in|if|while|elif|else|and|or|inn|yield)\s*$/.test(bef))||/^\s*=>/.test(all.slice(off+m.length));
+      const o=pos.concat(kw.length?['{'+kw.join(', ')+'}']:[]).join(', ');
+      return '\u0002'+(P.push(!call&&(ps.length>1||!o)?'['+o+']':'('+o+')')-1)+'\u0002'})}while(s!==prev);
+    s=fixT(s);while(/\u0002\d+\u0002/.test(s))s=s.replace(/\u0002(\d+)\u0002/g,(_,i)=>P[i]);
+    return s.replace(/\u0001(\d+)\u0001/g,(_,i)=>lit(strs[i]));
+  }
+  function head(t,inCls){t=t.slice(0,-1).trim();let m;
+    if(m=t.match(/^class\s+(\w+)\s*(?:\((.*)\))?$/)){const b=(m[2]||'').replace(/\b(tk|tkinter|ttk)\./g,'').trim();return['class','class '+m[1]+(b&&b!='object'?' extends '+b:'')+' {']}
+    if(m=t.match(/^def\s+(\w+)\s*\((.*?)\)\s*(?:->.*)?$/)){
+      const ps=splitTop(m[2]).map(p=>p.trim()).filter(p=>p&&p!='self').map(p=>{const q=p.match(/^(\*{0,2})(\w+)\s*(?::[^=]*)?(?:=\s*([\s\S]*))?$/);return(q[1]=='*'?'...':'')+q[2]+(q[3]?' = '+ex(q[3]):'')}).join(', ');
+      const as=AS.has(m[1])?'async ':'';
+      return inCls?['meth',as+(m[1]=='__init__'?'constructor':m[1])+'('+ps+') {',as]:['fn','var '+m[1]+' = '+as+'('+ps+') => {',as]}
+    if(m=t.match(/^if\s+(.*)$/))return/__name__/.test(m[1])?['blk','{']:['if','if ('+ex(m[1])+') {'];
+    if(m=t.match(/^elif\s+(.*)$/))return['if','else if ('+ex(m[1])+') {'];
+    if(t=='else')return['if','else {'];
+    if(m=t.match(/^while\s+(.*)$/))return['while','while ('+ex(m[1])+') {'];
+    if(t=='try')return['try','try {'];
+    if(m=t.match(/^except\b(?:.*\bas\s+(\w+))?$/))return['try','catch ('+(m[1]||'_e')+') {'];
+    if(t=='finally')return['try','finally {'];
+    if(m=t.match(/^for\s+(\w+)\s+in\s+range\s*\((.*)\)$/)){const a=splitTop(m[2]).map(x=>ex(x.trim())),v=m[1],[b,e,st]=a.length==1?['0',a[0],'1']:[a[0],a[1],a[2]||'1'];
+      return['for',`for (let ${v} = ${b}; ${v} ${/^-/.test(st)?'>':'<'} ${e}; ${v} ${st=='1'?'++':'+= '+st}) {`]}
+    if(m=t.match(/^for\s+(.+?)\s+in\s+(.+)$/)){const v=m[1].replace(/[()]/g,'').trim();return['for','for (let '+(v.includes(',')?'['+v+']':v)+' of iter('+ex(m[2])+')) {']}
+    return['blk','{']}
+  function stmt(t){let m;
+    if(/^(import|from)\s/.test(t)||/^pass$/.test(t))return '';
+    if(m=t.match(/^(?:global|nonlocal)\s+(.*)/)){m[1].split(',').forEach(n=>G.add(n.trim()));return ''}
+    if(m=t.match(/^(?:super\s*\(.*?\)|[\w.]+)\.__init__\s*\((.*)\)$/))return 'super'+ex('_('+m[1].replace(/^\s*self\s*,?\s*/,'')+')').slice(1)+';';
+    if((m=t.match(/^([\w.]+)\[\u0001(\d+)\u0001\]\s*=(?!=)\s*(.+)$/))&&WN.has(m[1])&&/^["']\w+["']$/.test(strs[m[2]].s))return ex(m[1])+'.config({'+strs[m[2]].s.slice(1,-1)+': '+ex(m[3])+'});';
+    if(m=t.match(/^return\b\s*(.*)$/)){const r=ex(m[1]);return 'return'+(r?' '+(splitTop(r).length>1?'['+r+']':r):'')+';'}
+    if(m=t.match(/^([\w.\[\]\u0001\u0002, ]+?)\s*(\*\*|\/\/|\+|-|\*|\/|%)?=(?!=)\s*(.+)$/)){
+      const lhs=m[1].trim(),op=m[2]||'';let r=ex(m[3]);
+      if(lhs.includes(',')){const L=lhs.split(',').map(x=>ex(x.trim()));if(splitTop(r).length>1)r='['+r+']';
+        return(L.every(x=>/^[A-Za-z_]\w*$/.test(x)&&!G.has(x))?'var ':'')+'['+L.join(', ')+'] = '+r+';'}
+      const l=ex(lhs);if(op=='//')return `${l} = Math.floor(${l} / (${r}));`;
+      return(/^[A-Za-z_]\w*$/.test(lhs)&&!op&&!G.has(lhs)?'var ':'')+l+' '+op+'= '+r+';'}
+    return ex(t)+';'}
+
+  const out=[],st=[],pad=n=>' '.repeat(n);
+  for(const {ind,t} of lines){
+    if(t[0]=='@'||/^\u0001\d+\u0001$/.test(t))continue;
+    const cont=/^(elif|else|except|finally)\b/.test(t);let merged=false;
+    while(st.length&&st[st.length-1].ind>=ind){const b=st.pop(),last=!(st.length&&st[st.length-1].ind>=ind);
+      if(last&&cont&&b.ind==ind&&(b.type=='if'||b.type=='try'))merged=true;else out.push(pad(b.ind)+b.close)}
+    const dd=[...st].reverse().find(b=>b.type=='fn'||b.type=='meth');curAsync=dd?!!dd.as:true;
+    if(t.endsWith(':')){const top=st[st.length-1],[type,txt,as]=head(t,top&&top.type=='class');st.push({ind,type,as:!!as,close:type=='fn'?'};':'}'});out.push(pad(ind)+(merged?'} ':'')+txt)}
+    else{const s=stmt(t);if(s)out.push(pad(ind)+s)}
+  }
+  while(st.length){const b=st.pop();out.push(pad(b.ind)+b.close)}
+  return{js:out.join('\n'),warn}
+}
+
+/* ---------- output document ---------- */
+function build(js){return '<!DOCTYPE html>\n<html lang="en"><head><meta charset="utf-8">\n<title>Tk app</title>\n<style>\n'+$('css').textContent.trim()+'\n</style></head>\n<body>\n<div id="tk-root"></div>\n'+SO+'\n/* ---- tkinter runtime ---- */\n'+$('rt').textContent.trim()+'\n'+SC+'\n'+SO+'\n/* ---- converted app ---- */\n(async()=>{\n'+js+'\n})();\n'+SC+'\n</body></html>\n'}
+
+/* ---------- UI ---------- */
+let code='',timer;
+function run(){try{const r=convert($('src').value);code=build(r.js);$('warn').textContent=r.warn.join(' · ')}catch(e){code='<pre>Converter error: '+e.message+'</pre>';$('warn').textContent='Converter error: '+e.message}
+  $('code').textContent=code;$('prev').srcdoc=code}
+function tab(p){$('prev').style.display=p?'':'none';$('code').style.display=p?'none':'';$('tp').classList.toggle('on',p);$('tc').classList.toggle('on',!p)}
+$('src').addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(run,600)});
+$('src').addEventListener('keydown',e=>{if(e.key=='Tab'){e.preventDefault();document.execCommand('insertText',false,'    ')}});
+$('ld').onclick=()=>{$('src').value=$('sample').textContent.trim()+'\n';run()};
+$('tp').onclick=()=>tab(true);$('tc').onclick=()=>tab(false);
+$('cp').onclick=()=>{const done=()=>{$('cp').textContent='Copied';setTimeout(()=>$('cp').textContent='Copy HTML',1200)};
+  const fb=()=>{tab(false);const r=document.createRange();r.selectNodeContents($('code'));const s=getSelection();s.removeAllRanges();s.addRange(r);try{document.execCommand('copy');done()}catch(e){}};
+  navigator.clipboard?navigator.clipboard.writeText(code).then(done,fb):fb()};
+$('ld').onclick();
+</script>
+</body></html>
