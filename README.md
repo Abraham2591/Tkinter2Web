@@ -1,183 +1,131 @@
-# Python Tkinter(ish) to Vanilla JS CSS Converter (WIP)
+# Tkinter2Web: Tkinter to HTML / CSS / JS converter
 
-A web-based tool that converts Python 3 Tkinter GUI applications into standalone HTML/JavaScript web apps.
+Paste Python 3 **tkinter** code into a single HTML file and get back a **self-contained, vanilla HTML + CSS + JavaScript page** that behaves like the original app. No build step, no dependencies, no server: `Tkinter2Web.html` is the whole project.
 
-## Overview
+> **Status:** experimental. It translates a practical *subset* of Python and tkinter (see [Limitations](#limitations)). It has been checked by converting the bundled sample app and syntax-checking the output, not by an exhaustive test suite.
 
-This converter takes Python code using the Tkinter library and transforms it into a single HTML file with embedded CSS and vanilla JavaScript. The goal is to provide conceptual equivalents between Python/Tkinter and web technologies.
+## How it works
 
-## What Is Supported
-
-### Python Syntax Conversion
-
-| Python | JavaScript |
-|--------|------------|
-| `def function_name():` | `function function_name() { }` |
-| `lambda x: x + 1` | `(x) => x + 1` |
-| `if condition:` / `else:` | `if (condition) { } else { }` |
-| `str(value)` | `String(value)` |
-| `global variable` | (handled automatically) |
-| `root.after(ms, func)` | `setTimeout(func, ms)` |
-| `variable = value` | `var variable = value;` |
-
-### Tkinter Widgets → HTML Elements
-
-| Tkinter Widget | HTML Output |
-|----------------|-------------|
-| `tk.Button` | `<button>` |
-| `tk.Label` | `<span>` |
-| `tk.Entry` | `<input type="text">` |
-| `tk.Frame` | `<div class="frame-container">` |
-| `tk.Checkbutton` | `<label><input type="checkbox">` |
-
-### Widget Options
-
-| Tkinter Option | HTML/CSS Output |
-|----------------|-----------------|
-| `text="Label"` | Inner text content |
-| `bg="#RRGGBB"` | `style="background: #RRGGBB"` |
-| `fg="#RRGGBB"` | `style="color: #RRGGBB"` |
-| `width=N` | CSS width styling |
-| `command=func` | `onclick` event handler |
-
-### Layout Managers
-
-| Tkinter | HTML/CSS |
-|---------|----------|
-| `.pack()` | Flexbox (column by default) |
-| `side=tk.LEFT` | `flex-direction: row` + `float` or flex |
-| `padx=N`, `pady=N` | CSS margin/padding |
-| Nested Frames | Nested divs with flexbox |
-
-### Event Handling
-
-- **Button clicks**: `command=func` → `element.onclick = function() { func(); }`
-- **Checkbutton toggle**: Uses `addEventListener("change", ...)` to detect checkbox state changes
-- **StringVar**: Converted to checking `checkbox.checked` (boolean)
-
-### Variable Types
-
-| Python | JavaScript |
-|--------|------------|
-| `counter = 0` | `var counter = 0;` |
-| `entry.get()` | `document.getElementById("wN").value` |
-| `var.get()` (StringVar) | `document.querySelector("input[type=checkbox]").checked` |
-| `label.config(text=...)` | `element.textContent = ...` |
+1. **Transpiler** (in `Tkinter2Web.html`): a line- and indentation-aware Python-to-JavaScript translator. It handles classes, functions, control flow, f-strings, keyword arguments, lambdas and more.
+2. **Tk runtime** (embedded in every generated page): a small vanilla-JS library that re-implements tkinter widgets, geometry managers, variables, events and `after` on top of the DOM and CSS flexbox/grid.
+3. **Output**: one `.html` file containing the CSS, the runtime and your converted app. Copy it anywhere and open it in a browser.
 
 ## Usage
 
-1. Open `converter.html` in a modern web browser
-2. Enter your Python Tkinter code in the left panel
-3. Click **Convert** to generate the HTML/JavaScript
-4. Click **Download** to save the resulting HTML file
-5. Open the downloaded HTML file in any browser
+1. Open `Tkinter2Web.html` in a modern browser (Chrome, Edge, Firefox, Safari).
+2. Paste tkinter code into the left pane (or click **Load sample**).
+3. Use the **Preview** tab to run it, or the **HTML output** tab to inspect the generated page.
+4. Click **Copy HTML** and save the result as `app.html`.
 
-### Sample Code
+Lines the converter cannot translate are listed in a warning line under the tabs.
 
-The converter includes two sample programs:
+## Example
 
-- **Load Basic**: A simple counter with Start/Reset buttons
-- **Load Full**: A comprehensive example with:
-  - Counter with increment/decrement/reset
-  - Text entry with submit
-  - Checkbutton with toggle functionality
-  - Timer functionality
-  - Nested frames
-
-## Limitations
-
-- Complex nested if/else with elif not fully supported
-- Class-based Tkinter applications require manual conversion
-- Some advanced widget options not implemented
-- Canvas widgets not supported
-- Menu bars not supported
-- Grid layout manager uses pack() approximation
-
-## Technical Details
-
-- **Output format**: Single HTML file with embedded `<style>` and `<script>` tags
-- **No dependencies**: Pure vanilla JavaScript, no frameworks
-- **Widget IDs**: Each widget gets a unique ID (`w0`, `w1`, etc.) for DOM manipulation
-- **CSS**: Uses flexbox for layout, minimal styling included
-
-## Example Conversion
-
-### Python Input:
 ```python
 import tkinter as tk
 
-counter = 0
+class App(tk.Frame):
+    def __init__(self, master=None):
+        super().__init__(master)
+        self.n = tk.IntVar(value=0)
+        self.pack()
+        tk.Label(self, textvariable=self.n, font=("Arial", 20)).pack()
+        tk.Button(self, text="+1", command=self.bump).pack()
 
-def increment():
-    global counter
-    counter = counter + 1
-    label.config(text="Count: " + str(counter))
-    if counter < 10:
-        root.after(500, increment)
-
-def on_reset():
-    global counter
-    counter = 0
-    label.config(text="Count: 0")
+    def bump(self):
+        self.n.set(self.n.get() + 1)
 
 root = tk.Tk()
-root.title("Counter App")
-
-label = tk.Label(root, text="Count: 0", bg="#eee")
-label.pack()
-
-btn1 = tk.Button(root, text="Start", command=increment, bg="#4CAF50", fg="white")
-btn1.pack(side=tk.LEFT, padx=5)
-
-btn2 = tk.Button(root, text="Reset", command=on_reset, bg="#f44336", fg="white")
-btn2.pack(side=tk.LEFT, padx=5)
-
+root.title("Counter")
+App(root)
 root.mainloop()
 ```
 
-### JavaScript Output:
-```html
-<!DOCTYPE html>
-<html><head><meta charset="UTF-8"><title>Counter App</title>
-<style>
-body{font-family:Arial;background:#f0f0f0;padding:20px}
-#app{display:flex;flex-direction:column;align-items:center;gap:10px}
-.frame-container{display:flex;flex-direction:row;align-items:center;gap:5px;margin:5px 0;padding:10px}
-button{padding:10px 20px;cursor:pointer;border:1px solid #ccc;border-radius:4px;margin:0 5px}
-span{display:inline-block;margin:5px 10px}
-input{padding:8px;width:150px;border:1px solid #ccc;border-radius:4px;margin:5px 0}
-label{cursor:pointer;margin:5px 10px;display:inline-flex;align-items:center;gap:5px}
-#w1{background:#4CAF50}
-#w2{background:#f44336}
-</style></head><body>
-<div id="app">
-<span id="w0">Count: 0</span>
-<button id="w1">Start</button>
-<button id="w2">Reset</button>
-</div>
-<script>
-var counter = 0;
-function increment() {
-    counter = counter + 1;
-    document.getElementById("w0").textContent = "Count: " +String(counter);
-    if (counter < 10) {
-        setTimeout(increment, 500);
-    }
-}
-function on_reset() {
-    counter = 0;
-    document.getElementById("w0").textContent = "Count: 0";
-}
+becomes a standalone page with a working counter.
 
-var el1 = document.getElementById("w1");
-if (el1) { el1.onclick = function() { increment(); }; }
-var el2 = document.getElementById("w2");
-if (el2) { el2.onclick = function() { on_reset(); }; }
+## What is supported
 
-console.log("App loaded");
-</script></body></html>
+### Widgets
+| Category | Widgets |
+|---|---|
+| Windows | `Tk`, `Toplevel` (title bar, `geometry`, `title`, `destroy`, menubar via `config(menu=...)`) |
+| Containers | `Frame`, `LabelFrame`, `PanedWindow` (alias of `Frame`), `ttk.Notebook` (`add`, `select`) |
+| Text & buttons | `Label` (text, `textvariable`, `image`), `Message`, `Button`, `Menubutton` (alias of `Button`), `Entry`, `Text`, `ScrolledText` |
+| Choices | `Checkbutton`, `Radiobutton`, `Scale`, `Listbox`, `Spinbox`, `ttk.Combobox`, `OptionMenu` |
+| Display | `Canvas`, `ttk.Progressbar`, `ttk.Separator`, `ttk.Treeview` (columns, headings, insert, delete, selection) |
+| Menus | `Menu` with commands, separators and cascades, rendered as a dropdown menubar |
+| Stubs / partial | `Scrollbar` (hidden, native scrolling used instead), `ttk.Style`, `PhotoImage`, `filedialog` (returns empty strings), `colorchooser` (uses a prompt) |
+
+The `ttk.` and `tk.` prefixes are stripped, so `ttk.Button` and `tk.Button` map to the same widget.
+
+### Layout
+- **`pack`**: `side`, `fill`, `expand`, `anchor`, `padx`/`pady` (including `(left, right)` tuples), `ipadx`/`ipady`, built on flexbox.
+- **`grid`**: `row`, `column`, `rowspan`, `columnspan`, `sticky`, padding, plus `columnconfigure` / `rowconfigure` weights, built on CSS grid.
+- **`place`**: `x`, `y`, `relx`, `rely`, `width`, `height`, `relwidth`, `relheight`, `anchor`.
+- Common options: `bg`/`fg`, `font` (tuple or string), `width`/`height` (characters or lines for text widgets), `padx`/`pady`, `bd`, `relief`, `cursor`, `anchor`, `justify`, `wraplength`, `state`, `command`, `textvariable`, `variable`, `values`, `from_`/`to`, `orient`.
+
+### Variables, events and timers
+- `StringVar`, `IntVar`, `DoubleVar`, `BooleanVar` with `get`, `set` and `trace_add`, kept in sync with widgets in both directions.
+- `bind` / `bind_all` with `<Button-1/2/3>`, `<Double-Button-1>`, `<ButtonRelease>`, `<Motion>`, `<B1-Motion>`, `<Enter>`, `<Leave>`, `<MouseWheel>`, `<FocusIn/Out>`, `<Key>`, `<KeyPress>`, `<KeyRelease>`, named keys (`<Return>`, `<Escape>`, `<space>`, arrows), `<Control-x>` combos and virtual events such as `<<ListboxSelect>>`. The event object provides `x`, `y`, `x_root`, `y_root`, `keysym`, `char`, `keycode`, `delta`, `num` and `widget`.
+- `after(ms, fn, *args)`, `after_idle`, `after_cancel` map to `setTimeout` / `clearTimeout`.
+
+### Canvas
+`create_rectangle`, `create_oval`, `create_line`, `create_text`, `create_polygon`, `delete` (id, tag or `"all"`), `move`, `coords`, `itemconfig`. Items are tracked in a display list and repainted with `requestAnimationFrame`.
+
+### Dialogs
+`messagebox` (`showinfo`, `showwarning`, `showerror`, `askyesno`, `askokcancel`, `askquestion`) and `simpledialog` (`askstring`, `askinteger`, `askfloat`) use the browser's native dialogs.
+
+### HTTP: `requests`, `httpx`, `urllib`
+- `requests.get/post/put/delete/patch/head/request` (also via `httpx`), with `params=`, `headers=`, `json=`, `data=` and `timeout=`.
+- `urllib.request.urlopen` / `Request` and `urllib.parse.urlencode` / `quote` / `unquote`.
+- Responses expose `.json()`, `.text`, `.content`, `.status_code`, `.ok`, `.headers` and `.raise_for_status()`.
+- The browser cannot block on network calls, so any function that makes a request (or calls one that does) is converted to `async`, and the calls are `await`ed automatically.
+- `.content` is exposed as an object URL so it works with the bundled PIL-style shims (`BytesIO`, `Image.open(...).resize(...)`, `ImageTk.PhotoImage`) and `Label(image=...)`.
+- `threading.Thread(target=...).start()` runs the target as an async task (there are no real threads).
+
+### Python language and standard library
+- **Syntax**: `class` with inheritance (`tk.Frame`, `tk.Tk`, your own classes), `super().__init__`, `def` with defaults and `*args`, `if`/`elif`/`else`, `while`, `for ... in range(...)`, `for` over lists, dicts and `enumerate`, `try`/`except`/`finally`, `lambda`, conditional expressions, tuple unpacking, augmented assignment, `global`, one-line compound statements (`if x: return`), multi-line expressions.
+- **Operators and literals**: `and`/`or`/`not`, `is`/`is not`, `in`/`not in`, `==`/`!=`, `//` on simple operands, `True`/`False`/`None`, f-strings (including `{x:.2f}` and `{n:02d}`), raw and triple-quoted strings.
+- **Bound methods**: `command=self.method` is auto-bound to `this`.
+- **Builtins**: `print` (to the console), `len`, `range`, `int`, `float`, `str`, `abs`, `min`, `max`, `sum`, `round`, `list`, `sorted`, `enumerate`.
+- **Methods**: `.append`, `.upper`, `.lower`, `.strip`, `.split()`, `.startswith`, `.endswith`, dict `.items()` / `.keys()` / `.values()` / `.get(key, default)`.
+- **Modules**: `math`, `random` (`random`, `randint`, `choice`, `uniform`), `time` (`time`, `strftime`), `datetime.now().strftime(...)`, `json` (`loads`, `dumps`).
+
+## Limitations
+
+- **No comprehensions**, slicing (`x[1:3]`), `%` formatting, `str.format`, `str.join`, `with` blocks, generators, decorators (dropped) or class-level attributes. The converter warns about these.
+- Code after `root.mainloop()` runs immediately instead of after the window closes.
+- `requests.Session()` and `httpx.Client()` are not supported.
+- `widget["option"] = value` is converted to `config(...)` only when the variable was assigned from a widget constructor in the same file; reading `widget["option"]` is not supported.
+- Pack layout with mixed `side` values in one container is approximate.
+- Python integer/float semantics follow JavaScript (no big integers, `/` is always float division).
+- Imports of other third-party modules are dropped, not emulated.
+- Only plain function calls are awaited. A lambda that calls an async function gets no `await`.
+- **Preview sandbox**: the live preview runs in a sandboxed iframe. Hosted environments that block outside network requests will make HTTP calls fail there. Copy the generated HTML to a local file to test network code.
+
+## Project layout
+
+```
+Tkinter2Web.html   # the entire project: UI, transpiler, runtime and CSS
+README.md
 ```
 
-## License
+Inside `Tkinter2Web.html`:
 
-MIT License
+| Block | Purpose |
+|---|---|
+| `<script type="text/plain" id="rt">` | Tk runtime (widgets, layout, events, HTTP shims), embedded verbatim into every output file |
+| `<script type="text/plain" id="css">` | Styles for the generated window and widgets |
+| `<script type="text/plain" id="sample">` | The bundled demo app |
+| `convert(src)` | Python-to-JS transpiler |
+| `build(js)` | Assembles the final standalone HTML document |
+
+## Extending
+
+- **Add a widget**: subclass `Misc` in the runtime (set `static _k`, implement `_mk()` and `_opt()`), then add its name to the `CLS` list in the transpiler so constructor calls get `new`.
+- **Add a Python helper**: define a runtime function or object (for example `len` or `random`) and, if the syntax needs rewriting, add a regex in `ex()`.
+- **Add a syntax rule**: statements are handled in `stmt()`, block headers in `head()`.
+
+## Contributing
+
+Issues and pull requests are welcome, especially failing tkinter snippets with the output you expected. Add a license file of your choice before publishing.
